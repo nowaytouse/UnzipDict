@@ -10,82 +10,82 @@ struct FloatingPasswordView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // 主输入区
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Image(systemName: "line.3.horizontal")
-                    .foregroundColor(.secondary.opacity(0.6))
-                    .font(.caption)
+                    .foregroundStyle(.quaternary)
+                    .font(.system(size: 10))
 
                 TextField("输入密码...", text: $password)
                     .textFieldStyle(.plain)
-                    .font(.system(.body, design: .monospaced))
+                    .font(.system(size: 12, design: .monospaced))
                     .onSubmit { addPassword() }
 
-                Button(action: { isOneTime.toggle() }) {
+                Button { isOneTime.toggle() } label: {
                     Image(systemName: isOneTime ? "flame.fill" : "flame")
-                        .foregroundColor(isOneTime ? .orange : .secondary)
-                        .font(.caption)
+                        .font(.system(size: 10))
+                        .foregroundStyle(isOneTime ? .orange : .tertiary)
                 }
                 .buttonStyle(.plain)
                 .help(isOneTime ? "单次密码" : "永久密码")
 
                 Button(action: addPassword) {
                     Image(systemName: showSuccess ? "checkmark.circle.fill" : "plus.circle.fill")
-                        .foregroundColor(showSuccess ? .green : (password.isEmpty ? .secondary : .blue))
-                        .font(.system(size: 18))
+                        .font(.system(size: 16))
+                        .foregroundStyle(showSuccess ? .green : (password.isEmpty ? .tertiary : .blue))
+                        .contentTransition(.symbolEffect(.replace))
                 }
                 .buttonStyle(.plain)
                 .disabled(password.isEmpty)
 
-                Button(action: { withAnimation(.spring(response: 0.3)) { isExpanded.toggle() } }) {
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
+                Button { withAnimation(.spring(response: 0.3)) { isExpanded.toggle() } } label: {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(isExpanded ? 180 : 0))
                 }
                 .buttonStyle(.plain)
 
-                Button(action: { onClose?() }) {
+                Button { onClose?() } label: {
                     Image(systemName: "xmark")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
 
             if isExpanded {
-                Divider()
-                    .padding(.horizontal, 10)
+                Divider().padding(.horizontal, 8)
 
                 ScrollView {
-                    LazyVStack(spacing: 2) {
-                        ForEach(engine.passwords.prefix(12)) { entry in
-                            Button(action: { password = entry.password }) {
+                    LazyVStack(spacing: 1) {
+                        ForEach(engine.passwords.prefix(10)) { entry in
+                            Button { password = entry.password } label: {
                                 HStack {
                                     Text(entry.password)
-                                        .font(.system(.caption, design: .monospaced))
-                                        .foregroundColor(.primary)
+                                        .font(.system(size: 11, design: .monospaced))
+                                        .foregroundStyle(.primary)
                                     Spacer()
                                     if entry.successCount > 0 {
                                         Text("\(entry.successCount)")
-                                            .font(.caption2)
-                                            .foregroundColor(.green)
+                                            .font(.system(size: 9))
+                                            .foregroundStyle(.green)
                                     }
                                 }
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
                             }
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
                 }
-                .frame(maxHeight: 160)
+                .frame(maxHeight: 140)
             }
         }
-        .frame(width: 300)
+        .frame(width: 280)
         .glassEffect(.regular.interactive())
     }
 
@@ -93,7 +93,7 @@ struct FloatingPasswordView: View {
         guard !password.isEmpty else { return }
         engine.addPassword(password, isOneTime: isOneTime)
         withAnimation(.spring(response: 0.2)) { showSuccess = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             withAnimation {
                 showSuccess = false
                 password = ""

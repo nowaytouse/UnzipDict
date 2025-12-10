@@ -1,36 +1,41 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - 主视图
 struct ContentView: View {
     @EnvironmentObject var engine: UnzipEngine
     @State private var selectedTab = 0
     @State private var isDragging = false
+    @Namespace private var animation
 
     var body: some View {
         ZStack {
-            // 背景渐变
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .windowBackgroundColor).opacity(0.95)
+            // 动态背景
+            MeshGradient(
+                width: 3, height: 3,
+                points: [
+                    [0, 0], [0.5, 0], [1, 0],
+                    [0, 0.5], [0.5, 0.5], [1, 0.5],
+                    [0, 1], [0.5, 1], [1, 1]
                 ],
-                startPoint: .top,
-                endPoint: .bottom
+                colors: [
+                    .blue.opacity(0.08), .purple.opacity(0.05), .cyan.opacity(0.06),
+                    .indigo.opacity(0.04), .clear, .teal.opacity(0.05),
+                    .purple.opacity(0.06), .blue.opacity(0.04), .cyan.opacity(0.08)
+                ]
             )
             .ignoresSafeArea()
+            .blur(radius: 60)
 
             VStack(spacing: 0) {
-                // 顶栏
-                GlassHeader(selectedTab: $selectedTab)
+                GlassHeader(selectedTab: $selectedTab, animation: animation)
                     .environmentObject(engine)
 
-                // 拖放区域
                 GlassDropZone(isDragging: $isDragging)
                     .environmentObject(engine)
                     .padding(.horizontal, 20)
-                    .padding(.top, 16)
+                    .padding(.top, 12)
 
-                // 内容区域
                 Group {
                     switch selectedTab {
                     case 0: TaskListView()
@@ -42,7 +47,6 @@ struct ContentView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environmentObject(engine)
 
-                // 底部控制栏
                 GlassControlBar()
                     .environmentObject(engine)
             }
@@ -54,55 +58,42 @@ struct ContentView: View {
 struct GlassHeader: View {
     @EnvironmentObject var engine: UnzipEngine
     @Binding var selectedTab: Int
+    var animation: Namespace.ID
 
     var body: some View {
-        HStack(spacing: 20) {
-            // 左侧统计
-            HStack(spacing: 12) {
+        HStack(spacing: 16) {
+            HStack(spacing: 10) {
                 MiniStat(value: engine.totalSuccess, icon: "checkmark.circle.fill", color: .green)
                 MiniStat(value: engine.totalFailed, icon: "xmark.circle.fill", color: .red)
             }
 
             Spacer()
 
-            // 中间 Tab 切换
-            HStack(spacing: 2) {
-                GlassTab(title: "任务", icon: "list.bullet", isSelected: selectedTab == 0) {
-                    withAnimation(.spring(response: 0.3)) { selectedTab = 0 }
-                }
-                GlassTab(title: "密码", icon: "key.fill", isSelected: selectedTab == 1) {
-                    withAnimation(.spring(response: 0.3)) { selectedTab = 1 }
-                }
-                GlassTab(title: "日志", icon: "doc.text", isSelected: selectedTab == 2) {
-                    withAnimation(.spring(response: 0.3)) { selectedTab = 2 }
+            HStack(spacing: 0) {
+                ForEach(Array(zip([0, 1, 2], [("任务", "list.bullet"), ("密码", "key.fill"), ("日志", "doc.text")])), id: \.0) { index, item in
+                    GlassTab(title: item.0, icon: item.1, isSelected: selectedTab == index, animation: animation) {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { selectedTab = index }
+                    }
                 }
             }
-            .padding(3)
+            .padding(4)
             .glassEffect(.regular.interactive())
 
             Spacer()
 
-            // 右侧密码统计
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 if !engine.cachePasswords.isEmpty {
-                    HStack(spacing: 3) {
-                        Image(systemName: "bolt.fill")
-                            .foregroundStyle(.yellow)
-                        Text("\(engine.cachePasswords.count)")
-                    }
-                    .font(.caption2)
+                    Label("\(engine.cachePasswords.count)", systemImage: "bolt.fill")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(.yellow)
                 }
-                HStack(spacing: 3) {
-                    Image(systemName: "key")
-                        .foregroundStyle(.secondary)
-                    Text("\(engine.passwords.count)")
-                }
-                .font(.caption2)
+                Label("\(engine.passwords.count)", systemImage: "key")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
             }
-            .foregroundStyle(.secondary)
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
         .glassEffect()
     }
 }
@@ -113,17 +104,18 @@ struct MiniStat: View {
     let color: Color
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             Image(systemName: icon)
-                .font(.system(size: 12))
-                .foregroundStyle(color)
+                .font(.system(size: 11))
+                .foregroundStyle(value > 0 ? color : color.opacity(0.4))
             Text("\(value)")
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                .foregroundStyle(value > 0 ? .primary : .secondary)
+                .font(.system(size: 12, weight: .bold, design: .rounded))
+                .foregroundStyle(value > 0 ? .primary : .tertiary)
+                .contentTransition(.numericText())
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .glassEffect(.regular.tint(color.opacity(0.15)))
+        .glassEffect(.regular.tint(color.opacity(value > 0 ? 0.12 : 0.05)))
     }
 }
 
@@ -131,24 +123,25 @@ struct GlassTab: View {
     let title: String
     let icon: String
     let isSelected: Bool
+    var animation: Namespace.ID
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                 Text(title)
-                    .font(.system(size: 12, weight: isSelected ? .semibold : .regular))
+                    .font(.system(size: 11, weight: isSelected ? .semibold : .regular))
             }
             .foregroundStyle(isSelected ? .primary : .secondary)
             .padding(.horizontal, 14)
-            .padding(.vertical, 8)
+            .padding(.vertical, 7)
             .background {
                 if isSelected {
                     Capsule()
-                        .fill(.background.opacity(0.8))
-                        .glassEffect(.regular.interactive())
+                        .fill(.background.opacity(0.9))
+                        .matchedGeometryEffect(id: "tab", in: animation)
                 }
             }
         }
@@ -163,39 +156,35 @@ struct GlassDropZone: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: 16)
                 .fill(.clear)
-                .glassEffect(.regular.tint(isDragging ? .blue.opacity(0.1) : .clear))
+                .glassEffect(.regular.tint(isDragging ? .blue.opacity(0.15) : .clear))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 20)
+                    RoundedRectangle(cornerRadius: 16)
                         .strokeBorder(
-                            isDragging ? Color.blue : Color.secondary.opacity(0.2),
-                            style: StrokeStyle(lineWidth: isDragging ? 2 : 1.5, dash: isDragging ? [] : [6, 4])
+                            isDragging ? Color.blue : Color.primary.opacity(0.1),
+                            style: StrokeStyle(lineWidth: isDragging ? 2 : 1, dash: isDragging ? [] : [5, 4])
                         )
                 }
 
-            VStack(spacing: 8) {
-                ZStack {
-                    Circle()
-                        .fill(.blue.opacity(isDragging ? 0.15 : 0.08))
-                        .frame(width: 48, height: 48)
-                    Image(systemName: isDragging ? "arrow.down.circle.fill" : "arrow.down.doc")
-                        .font(.system(size: 22))
-                        .foregroundStyle(isDragging ? .blue : .secondary)
-                }
-                .scaleEffect(isDragging ? 1.1 : 1.0)
-                .animation(.spring(response: 0.35, dampingFraction: 0.7), value: isDragging)
+            VStack(spacing: 6) {
+                Image(systemName: isDragging ? "arrow.down.circle.fill" : "arrow.down.doc")
+                    .font(.system(size: 26, weight: .light))
+                    .foregroundStyle(isDragging ? .blue : .secondary)
+                    .symbolEffect(.bounce, value: isDragging)
 
-                Text("拖放压缩文件到这里")
-                    .font(.system(size: 13, weight: .medium))
+                Text("拖放压缩文件")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(isDragging ? .primary : .secondary)
 
-                Text("支持 zip · rar · 7z · tar.gz")
-                    .font(.system(size: 11))
+                Text("zip · rar · 7z · tar.gz")
+                    .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
             }
         }
-        .frame(height: 100)
+        .frame(height: 88)
+        .scaleEffect(isDragging ? 1.02 : 1)
+        .animation(.spring(response: 0.3), value: isDragging)
         .onDrop(of: [.fileURL], isTargeted: $isDragging) { providers in
             handleDrop(providers)
             return true
@@ -221,59 +210,40 @@ struct GlassDropZone: View {
     }
 }
 
+
 // MARK: - 任务列表
 struct TaskListView: View {
     @EnvironmentObject var engine: UnzipEngine
     @State private var viewMode: ViewMode = .list
 
-    enum ViewMode: String, CaseIterable {
-        case list, tree
-    }
+    enum ViewMode { case list, tree }
 
     var body: some View {
         VStack(spacing: 0) {
-            // 统计栏
             StatsBar(viewMode: $viewMode)
                 .environmentObject(engine)
 
-            // 内容
             if engine.tasks.isEmpty {
-                emptyState
-            } else if viewMode == .list {
-                listContent
-            } else {
-                treeContent
-            }
-        }
-    }
-
-    var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "tray")
-                .font(.system(size: 40))
-                .foregroundStyle(.quaternary)
-            Text("暂无任务")
-                .font(.system(size: 14))
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    var listContent: some View {
-        ScrollView {
-            LazyVStack(spacing: 10) {
-                ForEach(engine.tasks) { task in
-                    TaskCard(task: task)
+                ContentUnavailableView {
+                    Label("暂无任务", systemImage: "tray")
+                } description: {
+                    Text("拖放压缩文件开始解压")
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if viewMode == .list {
+                ScrollView {
+                    LazyVStack(spacing: 8) {
+                        ForEach(engine.tasks) { task in
+                            TaskCard(task: task)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 10)
+                }
+            } else {
+                TreeView().environmentObject(engine)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
         }
-    }
-
-    var treeContent: some View {
-        TreeView()
-            .environmentObject(engine)
     }
 }
 
@@ -284,8 +254,7 @@ struct StatsBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            // 计数
-            HStack(spacing: 20) {
+            HStack(spacing: 16) {
                 StatItem(label: "待处理", value: engine.pendingCount, color: .secondary)
                 StatItem(label: "处理中", value: engine.processingCount, color: .blue)
                 StatItem(label: "完成", value: engine.completedCount, color: .green)
@@ -294,34 +263,24 @@ struct StatsBar: View {
 
             Spacer()
 
-            // 时间预测
             if engine.isProcessing, let remaining = engine.estimatedRemainingTime {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock")
-                        .font(.system(size: 10))
-                    Text(remaining)
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(.orange)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .glassEffect(.regular.tint(.orange.opacity(0.1)))
+                Label(remaining, systemImage: "clock")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .glassEffect(.regular.tint(.orange.opacity(0.1)))
             }
 
-            // 视图切换
-            HStack(spacing: 4) {
-                ViewModeButton(icon: "list.bullet", isSelected: viewMode == .list) {
-                    viewMode = .list
-                }
-                ViewModeButton(icon: "list.bullet.indent", isSelected: viewMode == .tree) {
-                    viewMode = .tree
-                }
+            HStack(spacing: 2) {
+                ViewModeButton(icon: "list.bullet", isSelected: viewMode == .list) { viewMode = .list }
+                ViewModeButton(icon: "list.bullet.indent", isSelected: viewMode == .tree) { viewMode = .tree }
             }
             .padding(3)
             .glassEffect(.regular.interactive())
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
     }
 }
 
@@ -331,13 +290,14 @@ struct StatItem: View {
     let color: Color
 
     var body: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 1) {
             Text("\(value)")
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundStyle(value > 0 ? color : .secondary.opacity(0.4))
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+                .foregroundStyle(value > 0 ? color : .quaternary)
+                .contentTransition(.numericText())
             Text(label)
-                .font(.system(size: 10))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 9))
+                .foregroundStyle(.tertiary)
         }
     }
 }
@@ -350,12 +310,12 @@ struct ViewModeButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: 12))
-                .foregroundStyle(isSelected ? .primary : .secondary)
-                .frame(width: 28, height: 24)
+                .font(.system(size: 11))
+                .foregroundStyle(isSelected ? .primary : .tertiary)
+                .frame(width: 26, height: 22)
                 .background {
                     if isSelected {
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: 5)
                             .fill(.background.opacity(0.8))
                     }
                 }
@@ -367,18 +327,16 @@ struct ViewModeButton: View {
 // MARK: - 任务卡片
 struct TaskCard: View {
     let task: UnzipTask
+    @State private var isHovered = false
 
     var body: some View {
-        HStack(spacing: 14) {
-            // 状态图标
-            statusIcon
-                .frame(width: 28, height: 28)
+        HStack(spacing: 12) {
+            statusIcon.frame(width: 26, height: 26)
 
-            // 信息
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
                     Text(task.fileName)
-                        .font(.system(size: 13, weight: .medium, design: .monospaced))
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
                         .lineLimit(1)
 
                     if task.isSteganography {
@@ -389,36 +347,32 @@ struct TaskCard: View {
                     }
                 }
 
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Text(task.status.rawValue)
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                         .foregroundStyle(statusColor)
 
                     if let password = task.usedPassword {
-                        HStack(spacing: 3) {
-                            Image(systemName: "key.fill")
-                                .font(.system(size: 9))
-                            Text(password)
-                        }
-                        .font(.system(size: 11))
-                        .foregroundStyle(.green)
+                        Label(password, systemImage: "key.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.green)
                     }
 
                     if task.passwordTryCount > 0 && task.status == .tryingPasswords {
                         Text("#\(task.passwordTryCount)")
-                            .font(.system(size: 10))
-                            .foregroundStyle(.secondary)
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.tertiary)
                     }
 
                     if let duration = task.duration {
                         Text(duration)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 9))
+                            .foregroundStyle(.quaternary)
                     }
 
                     if let error = task.error {
                         Text(error)
-                            .font(.system(size: 11))
+                            .font(.system(size: 10))
                             .foregroundStyle(.red)
                             .lineLimit(1)
                     }
@@ -427,17 +381,19 @@ struct TaskCard: View {
 
             Spacer()
 
-            // 进度
             if task.status == .tryingPasswords {
                 ProgressView(value: task.progress)
                     .progressViewStyle(.linear)
-                    .frame(width: 60)
+                    .frame(width: 50)
                     .tint(.blue)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
         .glassEffect(.regular.interactive())
+        .scaleEffect(isHovered ? 1.01 : 1)
+        .animation(.spring(response: 0.25), value: isHovered)
+        .onHover { isHovered = $0 }
     }
 
     @ViewBuilder
@@ -445,21 +401,21 @@ struct TaskCard: View {
         switch task.status {
         case .pending:
             Circle()
-                .fill(.secondary.opacity(0.2))
+                .fill(.secondary.opacity(0.15))
                 .overlay {
                     Image(systemName: "clock")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
         case .extracting, .tryingPasswords:
             ProgressView()
-                .scaleEffect(0.6)
+                .scaleEffect(0.55)
         case .success:
             Circle()
                 .fill(.green.opacity(0.15))
                 .overlay {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.green)
                 }
         case .failed:
@@ -467,7 +423,7 @@ struct TaskCard: View {
                 .fill(.red.opacity(0.15))
                 .overlay {
                     Image(systemName: "xmark")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.red)
                 }
         case .cancelled:
@@ -475,7 +431,7 @@ struct TaskCard: View {
                 .fill(.orange.opacity(0.15))
                 .overlay {
                     Image(systemName: "minus")
-                        .font(.system(size: 12, weight: .bold))
+                        .font(.system(size: 11, weight: .bold))
                         .foregroundStyle(.orange)
                 }
         }
@@ -498,13 +454,14 @@ struct TagBadge: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 9, weight: .medium))
+            .font(.system(size: 8, weight: .semibold))
             .foregroundStyle(color)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 5)
             .padding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.15)))
     }
 }
+
 
 // MARK: - 树状视图
 struct TreeView: View {
@@ -519,13 +476,13 @@ struct TreeView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(spacing: 12) {
+            LazyVStack(spacing: 10) {
                 ForEach(groupedTasks.keys.sorted(), id: \.self) { folder in
                     FolderSection(folderName: folder, tasks: groupedTasks[folder] ?? [])
                 }
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
         }
     }
 }
@@ -539,62 +496,54 @@ struct FolderSection: View {
     var failedCount: Int { tasks.filter { $0.status == .failed }.count }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             Button {
                 withAnimation(.spring(response: 0.3)) { isExpanded.toggle() }
             } label: {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     Image(systemName: isExpanded ? "folder.fill" : "folder")
-                        .font(.system(size: 14))
+                        .font(.system(size: 13))
                         .foregroundStyle(.blue)
 
                     Text(folderName)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
 
                     Text("\(tasks.count)")
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
 
                     Spacer()
 
                     if successCount > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 9))
-                            Text("\(successCount)")
-                        }
-                        .font(.system(size: 10))
-                        .foregroundStyle(.green)
+                        Label("\(successCount)", systemImage: "checkmark")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.green)
                     }
 
                     if failedCount > 0 {
-                        HStack(spacing: 2) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 9))
-                            Text("\(failedCount)")
-                        }
-                        .font(.system(size: 10))
-                        .foregroundStyle(.red)
+                        Label("\(failedCount)", systemImage: "xmark")
+                            .font(.system(size: 9))
+                            .foregroundStyle(.red)
                     }
 
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(.tertiary)
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.quaternary)
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .glassEffect(.regular.interactive())
             }
             .buttonStyle(.plain)
 
             if isExpanded {
-                VStack(spacing: 6) {
+                VStack(spacing: 4) {
                     ForEach(tasks) { task in
                         TreeFileItem(task: task)
                     }
                 }
-                .padding(.leading, 28)
+                .padding(.leading, 24)
             }
         }
     }
@@ -604,36 +553,34 @@ struct TreeFileItem: View {
     let task: UnzipTask
 
     var body: some View {
-        HStack(spacing: 10) {
-            // 连接线
+        HStack(spacing: 8) {
             Rectangle()
-                .fill(.secondary.opacity(0.2))
+                .fill(.secondary.opacity(0.15))
                 .frame(width: 1)
 
-            // 状态点
             Circle()
                 .fill(statusColor)
-                .frame(width: 8, height: 8)
+                .frame(width: 6, height: 6)
 
             Text(task.fileName)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .lineLimit(1)
 
             Spacer()
 
             if let pw = task.usedPassword {
                 Text(pw)
-                    .font(.system(size: 10))
+                    .font(.system(size: 9))
                     .foregroundStyle(.green)
             }
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 10)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
     }
 
     var statusColor: Color {
         switch task.status {
-        case .pending: return .secondary.opacity(0.4)
+        case .pending: return .secondary.opacity(0.3)
         case .extracting, .tryingPasswords: return .blue
         case .success: return .green
         case .failed: return .red
@@ -642,97 +589,76 @@ struct TreeFileItem: View {
     }
 }
 
-
 // MARK: - 密码列表
 struct PasswordListView: View {
     @EnvironmentObject var engine: UnzipEngine
     @State private var newPassword = ""
     @State private var isOneTime = false
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
-            // 添加密码
-            HStack(spacing: 12) {
-                HStack(spacing: 8) {
-                    Image(systemName: "plus.circle")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                    TextField("输入新密码...", text: $newPassword)
+            HStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.tertiary)
+                    TextField("添加密码...", text: $newPassword)
                         .textFieldStyle(.plain)
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
+                        .focused($isFocused)
                         .onSubmit { addPassword() }
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
                 .glassEffect(.regular.interactive())
 
-                Toggle("单次", isOn: $isOneTime)
-                    .toggleStyle(.checkbox)
-                    .font(.system(size: 12))
+                Toggle(isOn: $isOneTime) {
+                    Image(systemName: isOneTime ? "flame.fill" : "flame")
+                        .font(.system(size: 11))
+                        .foregroundStyle(isOneTime ? .orange : .tertiary)
+                }
+                .toggleStyle(.button)
+                .buttonStyle(.plain)
+                .help(isOneTime ? "单次密码" : "永久密码")
 
                 Button(action: addPassword) {
                     Image(systemName: "arrow.up.circle.fill")
-                        .font(.system(size: 22))
-                        .foregroundColor(newPassword.isEmpty ? .secondary : .blue)
+                        .font(.system(size: 20))
+                        .foregroundStyle(newPassword.isEmpty ? .tertiary : .blue)
                 }
                 .buttonStyle(.plain)
                 .disabled(newPassword.isEmpty)
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 14)
+            .padding(.vertical, 12)
 
             ScrollView {
-                LazyVStack(spacing: 16) {
-                    // 缓存密码
+                LazyVStack(spacing: 14) {
                     if !engine.cachePasswords.isEmpty {
-                        PasswordGroup(
-                            title: "缓存密码",
-                            subtitle: "最近成功",
-                            icon: "bolt.fill",
-                            color: .yellow
-                        ) {
+                        PasswordGroup(title: "缓存", subtitle: "最近成功", icon: "bolt.fill", color: .yellow) {
                             ForEach(engine.cachePasswords, id: \.self) { pw in
                                 PasswordItem(password: pw, badge: "⚡", badgeColor: .yellow)
                             }
                         }
                     }
 
-                    // 单次密码
                     if !engine.oneTimePasswords.isEmpty {
-                        PasswordGroup(
-                            title: "单次密码",
-                            subtitle: "用后即焚",
-                            icon: "flame.fill",
-                            color: .orange
-                        ) {
+                        PasswordGroup(title: "单次", subtitle: "用后即焚", icon: "flame.fill", color: .orange) {
                             ForEach(engine.oneTimePasswords) { entry in
-                                PasswordItem(
-                                    password: entry.password,
-                                    badge: entry.markedForDeletion ? "待删" : "🔥",
-                                    badgeColor: .orange
-                                )
+                                PasswordItem(password: entry.password, badge: entry.markedForDeletion ? "待删" : "🔥", badgeColor: .orange)
                             }
                         }
                     }
 
-                    // 永久密码
-                    PasswordGroup(
-                        title: "永久密码",
-                        subtitle: "\(engine.passwords.count)个",
-                        icon: "key.fill",
-                        color: .blue
-                    ) {
+                    PasswordGroup(title: "永久", subtitle: "\(engine.passwords.count)个", icon: "key.fill", color: .blue) {
                         ForEach(engine.passwords) { entry in
-                            PasswordItem(
-                                password: entry.password,
-                                badge: entry.successCount > 0 ? "\(entry.successCount)次" : nil,
-                                badgeColor: .green
-                            )
+                            PasswordItem(password: entry.password, badge: entry.successCount > 0 ? "\(entry.successCount)次" : nil, badgeColor: .green)
                         }
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 20)
+                .padding(.bottom, 16)
             }
         }
     }
@@ -752,22 +678,22 @@ struct PasswordGroup<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
                 Image(systemName: icon)
-                    .font(.system(size: 12))
+                    .font(.system(size: 10))
                     .foregroundStyle(color)
                 Text(title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                 Text(subtitle)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
             }
 
-            VStack(spacing: 6) {
+            VStack(spacing: 4) {
                 content
             }
-            .padding(12)
+            .padding(10)
             .glassEffect(.regular.tint(color.opacity(0.05)))
         }
     }
@@ -781,17 +707,18 @@ struct PasswordItem: View {
     var body: some View {
         HStack {
             Text(password)
-                .font(.system(size: 13, design: .monospaced))
+                .font(.system(size: 12, design: .monospaced))
             Spacer()
             if let badge = badge {
                 Text(badge)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(badgeColor)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 3)
     }
 }
+
 
 // MARK: - 日志列表
 struct LogListView: View {
@@ -801,37 +728,30 @@ struct LogListView: View {
         VStack(spacing: 0) {
             HStack {
                 Text("日志")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                 Spacer()
-                Button("清空") {
-                    engine.clearLogs()
-                }
-                .font(.system(size: 12))
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
+                Button("清空") { engine.clearLogs() }
+                    .font(.system(size: 11))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.tertiary)
             }
             .padding(.horizontal, 20)
-            .padding(.vertical, 12)
+            .padding(.vertical, 10)
 
             if engine.logs.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "doc.text")
-                        .font(.system(size: 36))
-                        .foregroundStyle(.quaternary)
-                    Text("暂无日志")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
+                ContentUnavailableView {
+                    Label("暂无日志", systemImage: "doc.text")
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVStack(spacing: 6) {
+                    LazyVStack(spacing: 5) {
                         ForEach(engine.logs) { log in
                             LogItem(log: log)
                         }
                     }
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 20)
+                    .padding(.bottom, 16)
                 }
             }
         }
@@ -842,25 +762,25 @@ struct LogItem: View {
     let log: LogEntry
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: 8) {
             Circle()
                 .fill(logColor)
-                .frame(width: 8, height: 8)
+                .frame(width: 6, height: 6)
                 .padding(.top, 4)
 
             Text(log.message)
-                .font(.system(size: 12, design: .monospaced))
+                .font(.system(size: 11, design: .monospaced))
                 .lineLimit(2)
 
             Spacer()
 
             Text(formatTime(log.timestamp))
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 9))
+                .foregroundStyle(.quaternary)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .glassEffect(.regular.tint(logColor.opacity(0.08)))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .glassEffect(.regular.tint(logColor.opacity(0.06)))
     }
 
     var logColor: Color {
@@ -886,32 +806,30 @@ struct GlassControlBar: View {
     @State private var showUpdateLog = false
 
     var body: some View {
-        HStack(spacing: 14) {
-            // 输出目录
+        HStack(spacing: 12) {
             Button(action: selectOutputDir) {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: "folder.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                         .foregroundStyle(.blue)
                     Text(shortenPath(engine.outputDirectory))
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
                 .glassEffect(.regular.interactive())
             }
             .buttonStyle(.plain)
 
             Spacer()
 
-            // 更新日志
             Button { showUpdateLog.toggle() } label: {
                 Image(systemName: "sparkles")
-                    .font(.system(size: 13))
+                    .font(.system(size: 12))
                     .foregroundStyle(.yellow)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 28, height: 28)
                     .glassEffect(.regular.interactive())
             }
             .buttonStyle(.plain)
@@ -919,60 +837,51 @@ struct GlassControlBar: View {
                 UpdateLogView()
             }
 
-            // 设置
             Button { showSettings.toggle() } label: {
                 Image(systemName: "gear")
-                    .font(.system(size: 14))
+                    .font(.system(size: 12))
                     .foregroundStyle(.secondary)
-                    .frame(width: 32, height: 32)
+                    .frame(width: 28, height: 28)
                     .glassEffect(.regular.interactive())
             }
             .buttonStyle(.plain)
             .popover(isPresented: $showSettings) {
-                SettingsView()
-                    .environmentObject(engine)
+                SettingsView().environmentObject(engine)
             }
 
-            // 主按钮
             if engine.isProcessing {
                 Button { engine.stopProcessing() } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Image(systemName: "stop.fill")
-                            .font(.system(size: 11))
+                            .font(.system(size: 10))
                         Text("停止")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 12, weight: .semibold))
                     }
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
                     .background(Capsule().fill(.red.gradient))
-                    .glassEffect(.regular.tint(.red.opacity(0.2)))
                 }
                 .buttonStyle(.plain)
             } else {
                 Button { engine.startProcessing() } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 5) {
                         Image(systemName: "play.fill")
-                            .font(.system(size: 11))
-                        Text("开始解压")
-                            .font(.system(size: 13, weight: .semibold))
+                            .font(.system(size: 10))
+                        Text("开始")
+                            .font(.system(size: 12, weight: .semibold))
                     }
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 10)
-                    .background(
-                        Capsule().fill(
-                            engine.pendingCount > 0 ? Color.blue.gradient : Color.gray.gradient
-                        )
-                    )
-                    .glassEffect(.regular.tint(.blue.opacity(0.2)))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(Capsule().fill(engine.pendingCount > 0 ? Color.blue.gradient : Color.gray.gradient))
                 }
                 .buttonStyle(.plain)
                 .disabled(engine.pendingCount == 0)
             }
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
         .glassEffect()
     }
 
@@ -997,9 +906,9 @@ struct SettingsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 Text("设置")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: 14, weight: .bold))
 
                 SettingGroup(title: "性能", icon: "cpu", color: .blue) {
                     HStack {
@@ -1050,9 +959,9 @@ struct SettingsView: View {
                     Button("保存设置") { engine.saveSettings() }
                 }
             }
-            .font(.system(size: 12))
+            .font(.system(size: 11))
         }
-        .frame(width: 280)
+        .frame(width: 260)
         .padding()
     }
 
@@ -1082,21 +991,21 @@ struct SettingGroup<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 5) {
                 Image(systemName: icon)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(color)
                 Text(title)
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
             }
 
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 8) {
                 content
             }
-            .padding(12)
+            .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(color.opacity(0.06)))
+            .glassEffect(.regular.tint(color.opacity(0.05)))
         }
     }
 }
@@ -1106,61 +1015,58 @@ struct UpdateLogView: View {
     @Environment(\.dismiss) var dismiss
 
     let changelog: [(version: String, date: String, changes: [String])] = [
+        ("1.1.0", "2025-12-10", [
+            "🎨 全新液态玻璃 UI 设计",
+            "✨ MeshGradient 动态背景",
+            "✨ 优化视觉层次和间距",
+            "✨ 更流畅的动画效果",
+            "✨ 数字过渡动画"
+        ]),
         ("1.0.0", "2025-12-10", [
             "🎉 首个 macOS 版本发布",
-            "✨ 4层密码队列: 字符匹配→缓存→单次→永久",
-            "✨ 智能密码排序 (按成功次数)",
-            "✨ 隐写包检测 (图片/视频内嵌压缩包)",
-            "✨ 分卷压缩包处理 (自动跳过非首包)",
-            "✨ 递归解压嵌套压缩包",
-            "✨ 乱码文件名修复 (SHIFT-JIS/GB2312)",
-            "✨ 动态解压模式",
-            "✨ 悬浮密码输入窗口",
-            "✨ 单次密码 (用后即焚)",
-            "✨ 成功后移到回收站",
-            "✨ 密码导入/导出 (兼容原版格式)",
-            "✨ 命令行参数支持",
-            "✨ 文件计数和时间预测",
-            "✨ 树状文件选择视图",
-            "🎨 原生 macOS 26 液态玻璃 UI"
+            "✨ 4层密码队列",
+            "✨ 智能密码排序",
+            "✨ 隐写包检测",
+            "✨ 递归解压嵌套包",
+            "✨ 乱码文件名修复",
+            "✨ 悬浮密码输入窗口"
         ])
     ]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Image(systemName: "sparkles")
-                    .foregroundStyle(.yellow)
-                Text("更新日志")
-                    .font(.system(size: 14, weight: .bold))
+                Label("更新日志", systemImage: "sparkles")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(.primary)
                 Spacer()
                 Button { dismiss() } label: {
                     Image(systemName: "xmark.circle.fill")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(.tertiary)
                 }
                 .buttonStyle(.plain)
             }
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 16) {
                     ForEach(changelog, id: \.version) { entry in
-                        VStack(alignment: .leading, spacing: 10) {
+                        VStack(alignment: .leading, spacing: 8) {
                             HStack {
                                 Text("v\(entry.version)")
-                                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                    .font(.system(size: 12, weight: .bold, design: .monospaced))
                                     .foregroundStyle(.blue)
                                 Text(entry.date)
-                                    .font(.system(size: 11))
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.tertiary)
                             }
 
-                            VStack(alignment: .leading, spacing: 5) {
+                            VStack(alignment: .leading, spacing: 4) {
                                 ForEach(entry.changes, id: \.self) { change in
                                     Text(change)
-                                        .font(.system(size: 11))
+                                        .font(.system(size: 10))
                                 }
                             }
-                            .padding(12)
+                            .padding(10)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .glassEffect(.regular.tint(.blue.opacity(0.05)))
                         }
@@ -1169,6 +1075,6 @@ struct UpdateLogView: View {
             }
         }
         .padding()
-        .frame(width: 340, height: 420)
+        .frame(width: 300, height: 360)
     }
 }
