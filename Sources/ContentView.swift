@@ -187,16 +187,26 @@ struct DropZoneView: View {
 // MARK: - 任务列表
 struct TaskListView: View {
     @EnvironmentObject var engine: UnzipEngine
+    @State private var viewMode: TaskViewMode = .list
+
+    enum TaskViewMode: String, CaseIterable {
+        case list = "列表"
+        case tree = "树状"
+    }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 8) {
-                ForEach(engine.tasks) { task in
-                    TaskRowView(task: task)
-                }
+        VStack(spacing: 0) {
+            // 统计栏
+            TaskStatsBar(viewMode: $viewMode)
+                .environmentObject(engine)
+
+            // 内容
+            if viewMode == .list {
+                taskListContent
+            } else {
+                TaskTreeView()
+                    .environmentObject(engine)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
         }
         .overlay {
             if engine.tasks.isEmpty {
@@ -210,6 +220,222 @@ struct TaskListView: View {
                 }
             }
         }
+    }
+
+    var taskListContent: some View {
+        ScrollView {
+            LazyVStack(spacing: 8) {
+                ForEach(engine.tasks) { task in
+                    TaskRowView(task: task)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+    }
+}
+
+// MARK: - 任务统计栏 (文件计数+时间预测)
+struct TaskStatsBar: View {
+    @EnvironmentObject var engine: UnzipEngine
+    @Binding var viewMode: TaskListView.TaskViewMode
+
+    var body: some View {
+        HStack(spacing: 12) {
+            // 文件计数
+            HStack(spacing: 16) {
+                CountBadge(label: "待处理", count: engine.pendingCount, color: .secondary)
+                CountBadge(label: "处理中", count: engine.processingCount, color: .blue)
+                CountBadge(label: "完成", count: engine.completedCount, color: .green)
+                CountBadge(label: "失败", count: engine.failedCount, color: .red)
+            }
+
+            Spacer()
+
+            // 时间预测
+            if engine.isProcessing, let remaining = engine.estimatedRemainingTime {
+                HStack(spacing: 4) {
+                    Image(systemName: "clock")
+                    Text(remaining)
+                }
+                .font(.caption)
+                .foregroundColor(.orange)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .glassEffect(.regular.tint(.orange.opacity(0.1)))
+            }
+
+            // 视图切换
+            Picker("", selection: $viewMode) {
+                ForEach(TaskListView.TaskViewMode.allCases, id: \.self) { mode in
+                    Image(systemName: mode == .list ? "list.bullet" : "list.bullet.indent")
+                        .tag(mode)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 70)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .glassEffect(.regular.tint(.clear))
+    }
+}
+
+struct CountBadge: View {
+    let label: String
+    let count: Int
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text("\(count)")
+                .font(.system(.body, design: .rounded, weight: .semibold))
+                .foregroundColor(count > 0 ? color : .secondary.opacity(0.5))
+            Text(label)
+                .font(.caption2)
+                .foregroundColor(.secondary)
+        }
+    }
+}
+
+// MARK: - 树状文件视图
+struct TaskTreeView: View {
+    @EnvironmentObject var engine: UnzipEngine
+
+    var groupedTasks: [String: [UnzipTask]] {
+        Dictionary(grouping: engine.tasks) { task in
+            let dir = (task.filePath as NSString).deletingLastPathComponent
+            return dir.isEmpty ? "根目录" : (dir as NSString).lastPathComponent
+        }
+    }
+
+    var body: some View {
+        ScrollView {
+            LazyVStack(spacing: 12) {
+                ForEach(groupedTasks.keys.sorted(), id: \.self) { folder in
+                    TreeFolderView(
+                        folderName: folder,
+                        tasks: groupedTasks[folder] ?? []
+                    )
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+        }
+    }
+}
+
+struct TreeFolderView: View {
+    let folderName: String
+    let tasks: [UnzipTask]
+    @State private var isExpanded = true
+
+    var successCount: Int { tasks.filter { $0.status == .success }.count }
+    var failedCount: Int { tasks.filter { $0.status == .failed }.count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // 文件夹头
+            Button(action: { withAnimation(.spring(response: 0.3)) { isExpanded.toggle() } }) {
+                HStack(spacing: 8) {
+                    Image(systemName: isExpanded ? "folder.fill" : "folder")
+                        .foregroundColor(.blue)
+                    Text(folderName)
+                        .fontWeight(.medium)
+                    Text("\(tasks.count)个文件")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+
+                    Spacer()
+
+                    if successCount > 0 {
+                        Text("✓\(successCount)")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                    }
+                    if failedCount > 0 {
+                        Text("✗\(failedCount)")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .glassEffect(.regular.interactive())
+
+            // 文件列表
+            if isExpanded {
+                VStack(spacing: 4) {
+                    ForEach(tasks) { task in
+                        TreeFileRow(task: task)
+                    }
+                }
+                .padding(.leading, 24)
+            }
+        }
+    }
+}
+
+struct TreeFileRow: View {
+    let task: UnzipTask
+
+    var body: some View {
+        HStack(spacing: 8) {
+            // 连接线
+            Rectangle()
+                .fill(Color.secondary.opacity(0.3))
+                .frame(width: 1, height: 20)
+
+            // 状态图标
+            statusIcon
+                .frame(width: 16)
+
+            // 文件名
+            Text(task.fileName)
+                .font(.system(.caption, design: .monospaced))
+                .lineLimit(1)
+
+            Spacer()
+
+            // 密码/错误
+            if let pw = task.usedPassword {
+                Text(pw)
+                    .font(.caption2)
+                    .foregroundColor(.green)
+            } else if let err = task.error {
+                Text(err)
+                    .font(.caption2)
+                    .foregroundColor(.red)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+    }
+
+    var statusIcon: some View {
+        Group {
+            switch task.status {
+            case .pending:
+                Image(systemName: "circle").foregroundColor(.secondary)
+            case .extracting, .tryingPasswords:
+                ProgressView().scaleEffect(0.5)
+            case .success:
+                Image(systemName: "checkmark.circle.fill").foregroundColor(.green)
+            case .failed:
+                Image(systemName: "xmark.circle.fill").foregroundColor(.red)
+            case .cancelled:
+                Image(systemName: "minus.circle").foregroundColor(.orange)
+            }
+        }
+        .font(.caption)
     }
 }
 
@@ -533,6 +759,7 @@ struct LogRow: View {
 struct LiquidGlassControlBar: View {
     @EnvironmentObject var engine: UnzipEngine
     @State private var showSettings = false
+    @State private var showUpdateLog = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -555,6 +782,19 @@ struct LiquidGlassControlBar: View {
             .help("输出目录")
 
             Spacer()
+
+            // 更新日志
+            Button(action: { showUpdateLog.toggle() }) {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 14))
+                    .foregroundColor(.yellow)
+                    .padding(8)
+                    .glassEffect(.regular.interactive())
+            }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showUpdateLog) {
+                UpdateLogView()
+            }
 
             // 设置
             Button(action: { showSettings.toggle() }) {
@@ -758,5 +998,78 @@ struct SettingSection<Content: View>: View {
                     .fill(color.opacity(0.08))
             )
         }
+    }
+}
+
+// MARK: - 更新日志窗口
+struct UpdateLogView: View {
+    @Environment(\.dismiss) var dismiss
+
+    let changelog: [(version: String, date: String, changes: [String])] = [
+        ("1.0.0", "2025-12-10", [
+            "🎉 首个 macOS 版本发布",
+            "✨ 4层密码队列: 字符匹配→缓存→单次→永久",
+            "✨ 智能密码排序 (按成功次数)",
+            "✨ 隐写包检测 (图片/视频内嵌压缩包)",
+            "✨ 分卷压缩包处理 (自动跳过非首包)",
+            "✨ 递归解压嵌套压缩包",
+            "✨ 乱码文件名修复 (SHIFT-JIS/GB2312)",
+            "✨ 动态解压模式",
+            "✨ 悬浮密码输入窗口",
+            "✨ 单次密码 (用后即焚)",
+            "✨ 成功后移到回收站",
+            "✨ 密码导入/导出 (兼容原版格式)",
+            "✨ 命令行参数支持",
+            "✨ 文件计数和时间预测",
+            "✨ 树状文件选择视图",
+            "🎨 原生 macOS 26 液态玻璃 UI"
+        ])
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Image(systemName: "sparkles")
+                    .foregroundColor(.yellow)
+                Text("更新日志")
+                    .font(.headline)
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    ForEach(changelog, id: \.version) { entry in
+                        VStack(alignment: .leading, spacing: 8) {
+                            HStack {
+                                Text("v\(entry.version)")
+                                    .font(.system(.subheadline, design: .monospaced, weight: .bold))
+                                    .foregroundColor(.blue)
+                                Text(entry.date)
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(entry.changes, id: \.self) { change in
+                                    Text(change)
+                                        .font(.caption)
+                                        .foregroundColor(.primary)
+                                }
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .glassEffect(.regular.tint(.blue.opacity(0.05)))
+                        }
+                    }
+                }
+            }
+        }
+        .padding()
+        .frame(width: 320, height: 400)
     }
 }

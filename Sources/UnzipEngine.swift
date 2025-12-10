@@ -107,6 +107,10 @@ class UnzipEngine: ObservableObject {
     @Published var totalSuccess: Int = 0
     @Published var totalFailed: Int = 0
     
+    // 会话统计 (文件计数和时间预测)
+    @Published var sessionStats: SessionStats?
+    @Published var estimatedTimePerFile: TimeInterval = 0
+    
     // 配置
     @Published var maxConcurrent: Int = 4
     @Published var smartOrder: Bool = true // 智能排序密码
@@ -465,6 +469,10 @@ class UnzipEngine: ObservableObject {
     func startProcessing() {
         guard !isProcessing, !taskQueue.isEmpty else { return }
         isProcessing = true
+        
+        // 初始化会话统计
+        sessionStats = SessionStats(startTime: Date(), totalFiles: taskQueue.count)
+        
         log(.info, "开始处理 \(taskQueue.count) 个任务")
         processNextBatch()
     }
@@ -523,7 +531,13 @@ class UnzipEngine: ObservableObject {
                 
                 if activeCount == 0 && taskQueue.isEmpty {
                     isProcessing = false
-                    log(.success, "全部完成: 成功 \(totalSuccess), 失败 \(totalFailed)")
+                    // 更新会话统计
+                    if let stats = sessionStats {
+                        let elapsed = stats.formattedElapsedTime
+                        log(.success, "全部完成: 成功 \(totalSuccess), 失败 \(totalFailed), 耗时 \(elapsed)")
+                    } else {
+                        log(.success, "全部完成: 成功 \(totalSuccess), 失败 \(totalFailed)")
+                    }
                 }
             }
         }
@@ -592,6 +606,9 @@ class UnzipEngine: ObservableObject {
                 if !password.isEmpty { recordSuccess(password: password) }
                 log(.success, "\(task.fileName) - 密码: \(password.isEmpty ? "无" : password) [第\(index+1)次尝试]")
                 
+                // 更新会话统计
+                updateSessionStats(success: true, duration: task.endTime!.timeIntervalSince(task.startTime!))
+                
                 // 后处理
                 fixGarbledFilenames(in: outputDir)
                 await extractNestedArchives(in: outputDir)
@@ -611,6 +628,9 @@ class UnzipEngine: ObservableObject {
         updateTask(task)
         totalFailed += 1
         log(.error, "\(task.fileName) - 解压失败")
+        
+        // 更新会话统计
+        updateSessionStats(success: false, duration: task.endTime!.timeIntervalSince(task.startTime!))
     }
     
     private func tryExtract(_ archive: String, to outputDir: String, password: String?) async -> Bool {
@@ -881,6 +901,38 @@ class UnzipEngine: ObservableObject {
     var processingCount: Int { tasks.filter { $0.status == .extracting || $0.status == .tryingPasswords }.count }
     var completedCount: Int { tasks.filter { $0.status == .success }.count }
     var failedCount: Int { tasks.filter { $0.status == .failed }.count }
+    
+    // MARK: - 会话统计更新
+    private func updateSessionStats(success: Bool, duration: TimeInterval) {
+        guard sessionStats != nil else { return }
+        
+        sessionStats!.processedFiles += 1
+        if success {
+            sessionStats!.successFiles += 1
+        } else {
+            sessionStats!.failedFiles += 1
+        }
+        
+        // 更新平均处理时间
+        let processed = sessionStats!.processedFiles
+        estimatedTimePerFile = (estimatedTimePerFile * Double(processed - 1) + duration) / Double(processed)
+    }
+    
+    // 获取预计剩余时间
+    var estimatedRemainingTime: String? {
+        guard estimatedTimePerFile > 0 else { return nil }
+        let remaining = pendingCount + processingCount
+        guard remaining > 0 else { return nil }
+        
+        let seconds = Int(estimatedTimePerFile * Double(remaining))
+        if seconds < 60 {
+            return "约\(seconds)秒"
+        } else if seconds < 3600 {
+            return "约\(seconds / 60)分\(seconds % 60)秒"
+        } else {
+            return "约\(seconds / 3600)时\((seconds % 3600) / 60)分"
+        }
+    }
     
     // MARK: - 输出路径防覆盖 (原作者功能)
     private func getUniqueOutputPath(_ basePath: String) -> String {
