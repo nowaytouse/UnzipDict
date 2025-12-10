@@ -673,7 +673,7 @@ struct PasswordListView: View {
                 Button(action: addPassword) {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 22))
-                        .foregroundStyle(newPassword.isEmpty ? .secondary : .blue)
+                        .foregroundColor(newPassword.isEmpty ? .secondary : .blue)
                 }
                 .buttonStyle(.plain)
                 .disabled(newPassword.isEmpty)
